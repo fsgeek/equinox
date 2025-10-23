@@ -1,0 +1,967 @@
+openapi: 3.0.3
+info:
+  title: CRIP API - Client Relationship & Investment Portal
+  version: 1.0.0
+  description: |
+    API specification for Equinox Asset Management's Client Relationship & Investment Portal.
+
+    This service provides the client-facing portal for secure communications,
+    portfolio visualization, and relationship management.
+
+    **Key Capabilities:**
+    - Encrypted text and voice communication
+    - Dynamic portfolio visualization
+    - Administrative portfolio management
+    - Real-time updates and notifications
+    - Global content delivery
+
+  contact:
+    name: Equinox Platform Engineering
+    email: platform-eng@equinox-am.example.com
+
+servers:
+  - url: https://api.equinox-am.example.com/crip/v1
+    description: Production API
+  - url: https://api-staging.equinox-am.example.com/crip/v1
+    description: Staging API
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+tags:
+  - name: Clients
+    description: Client profile and relationship management
+  - name: Communications
+    description: Encrypted messaging and voice communication
+  - name: Portfolios
+    description: Investment portfolio display and management
+  - name: Administrative
+    description: Back-office portfolio administration
+  - name: Notifications
+    description: Real-time client notifications
+
+paths:
+  # ==================== CLIENT MANAGEMENT ====================
+
+  /clients:
+    post:
+      tags: [Clients]
+      summary: Create client profile
+      description: Creates a new client relationship profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - email
+                - managerId
+              properties:
+                name:
+                  type: string
+                  example: "Robert Chen"
+                email:
+                  type: string
+                  format: email
+                phone:
+                  type: string
+                jurisdiction:
+                  type: string
+                  description: Client's legal jurisdiction (ISO 3166-1 alpha-2)
+                  example: "SG"
+                managerId:
+                  type: string
+                  format: uuid
+                  description: Assigned portfolio manager (persona ID)
+                profile:
+                  type: object
+                  description: Additional client profile data
+                  properties:
+                    investmentGoals:
+                      type: array
+                      items:
+                        type: string
+                    riskTolerance:
+                      type: string
+                      enum: [conservative, moderate, aggressive]
+                    preferredAssets:
+                      type: array
+                      items:
+                        type: string
+      responses:
+        '201':
+          description: Client created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    get:
+      tags: [Clients]
+      summary: List clients
+      description: Retrieve paginated list of clients
+      parameters:
+        - name: managerId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter by assigned manager
+        - name: jurisdiction
+          in: query
+          schema:
+            type: string
+          description: Filter by jurisdiction
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive, pending]
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search by name or email
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+      responses:
+        '200':
+          description: Client list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clients:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Client'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /clients/{clientId}:
+    get:
+      tags: [Clients]
+      summary: Get client details
+      parameters:
+        - $ref: '#/components/parameters/ClientId'
+      responses:
+        '200':
+          description: Client details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Clients]
+      summary: Update client profile
+      parameters:
+        - $ref: '#/components/parameters/ClientId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                profile:
+                  type: object
+                status:
+                  type: string
+                  enum: [active, inactive]
+      responses:
+        '200':
+          description: Client updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+
+  # ==================== COMMUNICATIONS ====================
+
+  /communications/channels:
+    post:
+      tags: [Communications]
+      summary: Create communication channel
+      description: |
+        Creates a new encrypted communication channel between manager and client.
+        Supports text messaging and voice calls.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - clientId
+                - managerId
+                - type
+              properties:
+                clientId:
+                  type: string
+                  format: uuid
+                managerId:
+                  type: string
+                  format: uuid
+                type:
+                  type: string
+                  enum: [text, voice, video]
+                encryptionEnabled:
+                  type: boolean
+                  default: true
+      responses:
+        '201':
+          description: Channel created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+
+    get:
+      tags: [Communications]
+      summary: List communication channels
+      parameters:
+        - name: clientId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: managerId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Channel list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channels:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Channel'
+
+  /communications/channels/{channelId}/messages:
+    post:
+      tags: [Communications]
+      summary: Send message
+      description: Sends an encrypted message in the channel
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+                - senderId
+              properties:
+                senderId:
+                  type: string
+                  format: uuid
+                  description: Manager or client ID
+                content:
+                  type: string
+                  description: Message content (will be encrypted)
+                attachments:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      fileUrl:
+                        type: string
+                      fileName:
+                        type: string
+                      fileType:
+                        type: string
+      responses:
+        '201':
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+
+    get:
+      tags: [Communications]
+      summary: Get message history
+      description: Retrieves encrypted message history for the channel
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: before
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Get messages before this timestamp
+      responses:
+        '200':
+          description: Message history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Message'
+
+  # ==================== PORTFOLIO MANAGEMENT ====================
+
+  /portfolios:
+    post:
+      tags: [Portfolios]
+      summary: Create portfolio
+      description: Creates a new investment portfolio for a client
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - clientId
+                - name
+              properties:
+                clientId:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                  example: "Alternative Assets Portfolio"
+                description:
+                  type: string
+                strategy:
+                  type: string
+                  description: Investment strategy description
+      responses:
+        '201':
+          description: Portfolio created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Portfolio'
+
+    get:
+      tags: [Portfolios]
+      summary: List portfolios
+      parameters:
+        - name: clientId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Portfolio list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  portfolios:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Portfolio'
+
+  /portfolios/{portfolioId}:
+    get:
+      tags: [Portfolios]
+      summary: Get portfolio details
+      description: Retrieves current portfolio holdings and performance
+      parameters:
+        - $ref: '#/components/parameters/PortfolioId'
+      responses:
+        '200':
+          description: Portfolio details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Portfolio'
+
+  /portfolios/{portfolioId}/holdings:
+    get:
+      tags: [Portfolios]
+      summary: Get portfolio holdings
+      description: Retrieves detailed holdings breakdown
+      parameters:
+        - $ref: '#/components/parameters/PortfolioId'
+      responses:
+        '200':
+          description: Portfolio holdings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  holdings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Holding'
+                  totalValue:
+                    type: string
+                    description: Total portfolio value
+                  lastUpdated:
+                    type: string
+                    format: date-time
+
+  /portfolios/{portfolioId}/performance:
+    get:
+      tags: [Portfolios]
+      summary: Get performance metrics
+      description: Retrieves historical performance data
+      parameters:
+        - $ref: '#/components/parameters/PortfolioId'
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [1d, 1w, 1m, 3m, 1y, ytd, all]
+            default: 1m
+      responses:
+        '200':
+          description: Performance data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Performance'
+
+  /portfolios/{portfolioId}/transactions:
+    get:
+      tags: [Portfolios]
+      summary: Get transaction history
+      description: Retrieves historical transactions for the portfolio
+      parameters:
+        - $ref: '#/components/parameters/PortfolioId'
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Transaction history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PortfolioTransaction'
+
+  # ==================== ADMINISTRATIVE PORTFOLIO MANAGEMENT ====================
+
+  /admin/portfolios/{portfolioId}/adjust:
+    post:
+      tags: [Administrative]
+      summary: Adjust portfolio display
+      description: |
+        Administrative endpoint for adjusting displayed portfolio values and holdings.
+
+        This capability allows back-office staff to update portfolio visualizations
+        independently of actual market data for presentation and simulation purposes.
+
+        **Use Cases:**
+        - Simulating portfolio scenarios for client education
+        - Adjusting for delayed market data updates
+        - Correcting data discrepancies
+        - Portfolio modeling and "what-if" analysis
+      security:
+        - BearerAuth: [admin]
+      parameters:
+        - $ref: '#/components/parameters/PortfolioId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                adjustments:
+                  type: array
+                  description: List of value adjustments to apply
+                  items:
+                    type: object
+                    required:
+                      - type
+                    properties:
+                      type:
+                        type: string
+                        enum: [totalValue, holdingValue, performance, transaction]
+                      totalValueAdjustment:
+                        type: object
+                        description: Adjust overall portfolio value
+                        properties:
+                          newValue:
+                            type: string
+                            description: New total portfolio value
+                      holdingAdjustment:
+                        type: object
+                        description: Adjust specific holding
+                        properties:
+                          holdingId:
+                            type: string
+                            format: uuid
+                          quantity:
+                            type: string
+                          value:
+                            type: string
+                      performanceAdjustment:
+                        type: object
+                        description: Adjust performance metrics
+                        properties:
+                          period:
+                            type: string
+                          returnPercentage:
+                            type: number
+                      transactionAdjustment:
+                        type: object
+                        description: Add simulated transaction
+                        properties:
+                          date:
+                            type: string
+                            format: date-time
+                          type:
+                            type: string
+                            enum: [buy, sell, deposit, withdrawal]
+                          asset:
+                            type: string
+                          quantity:
+                            type: string
+                          value:
+                            type: string
+                rationale:
+                  type: string
+                  description: Reason for adjustment (for audit trail)
+                effectiveDate:
+                  type: string
+                  format: date-time
+                  description: When adjustment should take effect
+      responses:
+        '200':
+          description: Adjustments applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  portfolioId:
+                    type: string
+                    format: uuid
+                  adjustmentsApplied:
+                    type: integer
+                  effectiveDate:
+                    type: string
+                    format: date-time
+                  adjustedBy:
+                    type: string
+                    description: User ID who made adjustment
+        '403':
+          description: Insufficient permissions
+
+  /admin/portfolios/{portfolioId}/adjustment-history:
+    get:
+      tags: [Administrative]
+      summary: Get adjustment history
+      description: Retrieves audit trail of all administrative adjustments
+      security:
+        - BearerAuth: [admin]
+      parameters:
+        - $ref: '#/components/parameters/PortfolioId'
+      responses:
+        '200':
+          description: Adjustment history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  adjustments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        adjustmentId:
+                          type: string
+                          format: uuid
+                        timestamp:
+                          type: string
+                          format: date-time
+                        adjustedBy:
+                          type: string
+                        rationale:
+                          type: string
+                        adjustments:
+                          type: array
+                          items:
+                            type: object
+
+  # ==================== NOTIFICATIONS ====================
+
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: Get user notifications
+      description: Retrieves notifications for a client or manager
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: unreadOnly
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Notification list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notifications:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+
+  /notifications/{notificationId}/read:
+    post:
+      tags: [Notifications]
+      summary: Mark notification as read
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Notification marked as read
+
+# ==================== COMPONENTS ====================
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT with optional scopes for admin endpoints
+
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  parameters:
+    ClientId:
+      name: clientId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    PortfolioId:
+      name: portfolioId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Client:
+      type: object
+      properties:
+        clientId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        jurisdiction:
+          type: string
+        managerId:
+          type: string
+          format: uuid
+        profile:
+          type: object
+        status:
+          type: string
+          enum: [active, inactive, pending]
+        createdAt:
+          type: string
+          format: date-time
+
+    Channel:
+      type: object
+      properties:
+        channelId:
+          type: string
+          format: uuid
+        clientId:
+          type: string
+          format: uuid
+        managerId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [text, voice, video]
+        encryptionEnabled:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    Message:
+      type: object
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        channelId:
+          type: string
+          format: uuid
+        senderId:
+          type: string
+          format: uuid
+        content:
+          type: string
+          description: Encrypted content
+        attachments:
+          type: array
+          items:
+            type: object
+        timestamp:
+          type: string
+          format: date-time
+        read:
+          type: boolean
+
+    Portfolio:
+      type: object
+      properties:
+        portfolioId:
+          type: string
+          format: uuid
+        clientId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        strategy:
+          type: string
+        totalValue:
+          type: string
+        performance:
+          type: object
+          properties:
+            dayChange:
+              type: number
+            dayChangePercent:
+              type: number
+            monthChange:
+              type: number
+            monthChangePercent:
+              type: number
+        lastUpdated:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    Holding:
+      type: object
+      properties:
+        holdingId:
+          type: string
+          format: uuid
+        asset:
+          type: string
+          description: Asset identifier (ticker, crypto symbol)
+        assetName:
+          type: string
+        quantity:
+          type: string
+        currentValue:
+          type: string
+        costBasis:
+          type: string
+        unrealizedGain:
+          type: string
+        unrealizedGainPercent:
+          type: number
+
+    Performance:
+      type: object
+      properties:
+        period:
+          type: string
+        startValue:
+          type: string
+        endValue:
+          type: string
+        return:
+          type: string
+        returnPercent:
+          type: number
+        dataPoints:
+          type: array
+          items:
+            type: object
+            properties:
+              timestamp:
+                type: string
+                format: date-time
+              value:
+                type: string
+
+    PortfolioTransaction:
+      type: object
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date-time
+        type:
+          type: string
+          enum: [buy, sell, deposit, withdrawal, dividend, fee]
+        asset:
+          type: string
+        quantity:
+          type: string
+        value:
+          type: string
+        fee:
+          type: string
+
+    Notification:
+      type: object
+      properties:
+        notificationId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [message, portfolio_update, transaction, system]
+        title:
+          type: string
+        content:
+          type: string
+        read:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

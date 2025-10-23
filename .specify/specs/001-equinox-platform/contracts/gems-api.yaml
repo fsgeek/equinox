@@ -1,0 +1,994 @@
+openapi: 3.0.3
+info:
+  title: GEMS API - Global Engagement & Mobile Systems
+  version: 1.0.0
+  description: |
+    API specification for Equinox Asset Management's Global Engagement & Mobile Systems.
+
+    This service manages the mobile device fleet, persona profiles, and orchestrates
+    outreach campaigns at scale.
+
+    **Key Capabilities:**
+    - Centralized mobile device fleet management
+    - Persona profile management and assignment
+    - Automated outreach campaign orchestration
+    - Real-time device monitoring and control
+    - Cross-platform application deployment
+
+  contact:
+    name: Equinox Platform Engineering
+    email: platform-eng@equinox-am.example.com
+
+servers:
+  - url: https://api.equinox-am.example.com/gems/v1
+    description: Production API
+  - url: https://api-staging.equinox-am.example.com/gems/v1
+    description: Staging API
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+tags:
+  - name: Devices
+    description: Mobile device fleet management and provisioning
+  - name: Personas
+    description: Manager persona profile management
+  - name: Campaigns
+    description: Outreach campaign orchestration and execution
+  - name: Scripts
+    description: Engagement script management and templates
+  - name: Monitoring
+    description: Device health and campaign performance monitoring
+
+paths:
+  # ==================== DEVICE FLEET MANAGEMENT ====================
+
+  /devices:
+    post:
+      tags: [Devices]
+      summary: Register new device
+      description: |
+        Registers a new mobile device into the fleet management system.
+        Device will be provisioned with necessary applications and configurations.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - deviceId
+                - platform
+                - deviceModel
+              properties:
+                deviceId:
+                  type: string
+                  description: Unique hardware identifier (IMEI, serial number)
+                  example: "IMEI-356938035643809"
+                platform:
+                  type: string
+                  enum: [iOS, Android]
+                deviceModel:
+                  type: string
+                  example: "iPhone 15 Pro"
+                osVersion:
+                  type: string
+                  example: "17.1"
+                label:
+                  type: string
+                  description: Human-readable device label
+                  example: "Fleet Device NA-001"
+      responses:
+        '201':
+          description: Device registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Device already registered
+
+    get:
+      tags: [Devices]
+      summary: List devices
+      description: Retrieve paginated list of devices with filtering
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [online, offline, provisioning, error]
+        - name: platform
+          in: query
+          schema:
+            type: string
+            enum: [iOS, Android]
+        - name: assignedPersonaId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter by assigned persona
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+      responses:
+        '200':
+          description: Device list retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Device'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /devices/{deviceId}:
+    get:
+      tags: [Devices]
+      summary: Get device details
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Device details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Devices]
+      summary: Update device configuration
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                status:
+                  type: string
+                  enum: [online, offline, maintenance]
+      responses:
+        '200':
+          description: Device updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+
+    delete:
+      tags: [Devices]
+      summary: Decommission device
+      description: Removes device from fleet and wipes all managed data
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '204':
+          description: Device decommissioned
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /devices/{deviceId}/applications:
+    post:
+      tags: [Devices]
+      summary: Install application on device
+      description: Remotely install and configure an application on the device
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - applicationId
+              properties:
+                applicationId:
+                  type: string
+                  description: Application identifier from catalog
+                  example: "com.messaging.secure"
+                configuration:
+                  type: object
+                  description: Application-specific configuration
+                  additionalProperties: true
+      responses:
+        '202':
+          description: Installation initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: [queued, installing, completed, failed]
+
+    get:
+      tags: [Devices]
+      summary: List installed applications
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '200':
+          description: Installed applications
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  applications:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/InstalledApp'
+
+  /devices/{deviceId}/assign-persona:
+    post:
+      tags: [Devices]
+      summary: Assign persona to device
+      description: Assigns a Manager Persona to this device for outreach operations
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - personaId
+              properties:
+                personaId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Persona assigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonaAssignment'
+        '409':
+          description: Device already has assigned persona
+
+  # ==================== PERSONA MANAGEMENT ====================
+
+  /personas:
+    post:
+      tags: [Personas]
+      summary: Create new persona
+      description: Creates a new Manager Persona profile with associated credentials
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - profile
+              properties:
+                name:
+                  type: string
+                  description: Persona's professional name
+                  example: "Alexandra Chen"
+                profile:
+                  type: object
+                  required:
+                    - occupation
+                    - location
+                  properties:
+                    occupation:
+                      type: string
+                      example: "Investment Manager"
+                    location:
+                      type: string
+                      example: "Singapore"
+                    bio:
+                      type: string
+                      description: Professional biography
+                    photoUrl:
+                      type: string
+                      format: uri
+                      description: Profile photo URL
+                    backgroundUrl:
+                      type: string
+                      format: uri
+                      description: Background/header image URL
+                credentials:
+                  type: array
+                  description: Social media and messaging platform credentials
+                  items:
+                    type: object
+                    required:
+                      - platform
+                      - username
+                    properties:
+                      platform:
+                        type: string
+                        enum: [linkedin, whatsapp, telegram, instagram, twitter]
+                      username:
+                        type: string
+                      accessToken:
+                        type: string
+                        description: OAuth token or API key
+      responses:
+        '201':
+          description: Persona created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Persona'
+
+    get:
+      tags: [Personas]
+      summary: List personas
+      description: Retrieve paginated list of personas with filtering
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive, assigned]
+        - name: assignedDeviceId
+          in: query
+          schema:
+            type: string
+          description: Filter by assigned device
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search by name or profile fields
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+      responses:
+        '200':
+          description: Persona list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  personas:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Persona'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /personas/{personaId}:
+    get:
+      tags: [Personas]
+      summary: Get persona details
+      parameters:
+        - $ref: '#/components/parameters/PersonaId'
+      responses:
+        '200':
+          description: Persona details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Persona'
+
+    patch:
+      tags: [Personas]
+      summary: Update persona
+      parameters:
+        - $ref: '#/components/parameters/PersonaId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                profile:
+                  type: object
+                credentials:
+                  type: array
+                  items:
+                    type: object
+                status:
+                  type: string
+                  enum: [active, inactive]
+      responses:
+        '200':
+          description: Persona updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Persona'
+
+    delete:
+      tags: [Personas]
+      summary: Delete persona
+      description: Removes persona and all associated credentials
+      parameters:
+        - $ref: '#/components/parameters/PersonaId'
+      responses:
+        '204':
+          description: Persona deleted
+
+  # ==================== OUTREACH CAMPAIGNS ====================
+
+  /campaigns:
+    post:
+      tags: [Campaigns]
+      summary: Create outreach campaign
+      description: |
+        Creates a new outreach campaign with targeting parameters and
+        engagement scripts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - scriptId
+                - targetCriteria
+              properties:
+                name:
+                  type: string
+                  description: Campaign name
+                  example: "Q4 Alternative Assets Outreach"
+                scriptId:
+                  type: string
+                  format: uuid
+                  description: Engagement script template to use
+                targetCriteria:
+                  type: object
+                  description: Criteria for target selection
+                  properties:
+                    platforms:
+                      type: array
+                      items:
+                        type: string
+                        enum: [linkedin, instagram, twitter]
+                    regions:
+                      type: array
+                      items:
+                        type: string
+                      example: ["NA", "EU", "APAC"]
+                    keywords:
+                      type: array
+                      items:
+                        type: string
+                      description: Keywords for target identification
+                      example: ["investment", "crypto", "alternative assets"]
+                personas:
+                  type: array
+                  description: Specific personas to use for this campaign
+                  items:
+                    type: string
+                    format: uuid
+                schedule:
+                  type: object
+                  properties:
+                    startTime:
+                      type: string
+                      format: date-time
+                    endTime:
+                      type: string
+                      format: date-time
+                    maxContactsPerDay:
+                      type: integer
+                      description: Rate limiting for natural engagement patterns
+      responses:
+        '201':
+          description: Campaign created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+
+    get:
+      tags: [Campaigns]
+      summary: List campaigns
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, scheduled, active, paused, completed]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+      responses:
+        '200':
+          description: Campaign list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaigns:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Campaign'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /campaigns/{campaignId}:
+    get:
+      tags: [Campaigns]
+      summary: Get campaign details
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Campaign details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+
+    patch:
+      tags: [Campaigns]
+      summary: Update campaign
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [scheduled, active, paused, completed]
+                schedule:
+                  type: object
+      responses:
+        '200':
+          description: Campaign updated
+
+  /campaigns/{campaignId}/start:
+    post:
+      tags: [Campaigns]
+      summary: Start campaign execution
+      description: Begins automated outreach for this campaign
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '202':
+          description: Campaign started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaignId:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: [active]
+                  startedAt:
+                    type: string
+                    format: date-time
+
+  /campaigns/{campaignId}/metrics:
+    get:
+      tags: [Campaigns]
+      summary: Get campaign metrics
+      description: Retrieve performance metrics for campaign execution
+      parameters:
+        - name: campaignId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Campaign metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CampaignMetrics'
+
+  # ==================== ENGAGEMENT SCRIPTS ====================
+
+  /scripts:
+    post:
+      tags: [Scripts]
+      summary: Create engagement script
+      description: |
+        Creates a new engagement script template for use in outreach campaigns.
+        Scripts define the messaging sequence and behavior.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - template
+              properties:
+                name:
+                  type: string
+                  example: "Professional Introduction - Alternative Assets"
+                description:
+                  type: string
+                template:
+                  type: object
+                  description: Script template with message sequences
+                  properties:
+                    initialContact:
+                      type: string
+                      description: First message template
+                    followUpSequence:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          delayHours:
+                            type: integer
+                          message:
+                            type: string
+                    variables:
+                      type: array
+                      items:
+                        type: string
+                      description: Variable placeholders (e.g., {targetName})
+      responses:
+        '201':
+          description: Script created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Script'
+
+    get:
+      tags: [Scripts]
+      summary: List scripts
+      responses:
+        '200':
+          description: Script list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scripts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Script'
+
+  /scripts/{scriptId}:
+    get:
+      tags: [Scripts]
+      summary: Get script details
+      parameters:
+        - name: scriptId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Script details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Script'
+
+# ==================== COMPONENTS ====================
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  parameters:
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        type: string
+
+    PersonaId:
+      name: personaId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Device:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        platform:
+          type: string
+          enum: [iOS, Android]
+        deviceModel:
+          type: string
+        osVersion:
+          type: string
+        status:
+          type: string
+          enum: [online, offline, provisioning, error, maintenance]
+        label:
+          type: string
+        assignedPersona:
+          $ref: '#/components/schemas/PersonaReference'
+        lastSeen:
+          type: string
+          format: date-time
+        registeredAt:
+          type: string
+          format: date-time
+
+    InstalledApp:
+      type: object
+      properties:
+        applicationId:
+          type: string
+        applicationName:
+          type: string
+        version:
+          type: string
+        installedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [installed, updating, error]
+
+    Persona:
+      type: object
+      properties:
+        personaId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        profile:
+          type: object
+          properties:
+            occupation:
+              type: string
+            location:
+              type: string
+            bio:
+              type: string
+            photoUrl:
+              type: string
+            backgroundUrl:
+              type: string
+        credentials:
+          type: array
+          items:
+            type: object
+            properties:
+              platform:
+                type: string
+              username:
+                type: string
+              # accessToken excluded from responses for security
+        status:
+          type: string
+          enum: [active, inactive, assigned]
+        assignedDevice:
+          type: string
+          description: Device ID if assigned
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    PersonaReference:
+      type: object
+      properties:
+        personaId:
+          type: string
+          format: uuid
+        name:
+          type: string
+
+    PersonaAssignment:
+      type: object
+      properties:
+        deviceId:
+          type: string
+        personaId:
+          type: string
+          format: uuid
+        assignedAt:
+          type: string
+          format: date-time
+
+    Campaign:
+      type: object
+      properties:
+        campaignId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        scriptId:
+          type: string
+          format: uuid
+        targetCriteria:
+          type: object
+        personas:
+          type: array
+          items:
+            type: string
+            format: uuid
+        schedule:
+          type: object
+          properties:
+            startTime:
+              type: string
+              format: date-time
+            endTime:
+              type: string
+              format: date-time
+            maxContactsPerDay:
+              type: integer
+        status:
+          type: string
+          enum: [draft, scheduled, active, paused, completed]
+        createdAt:
+          type: string
+          format: date-time
+
+    CampaignMetrics:
+      type: object
+      properties:
+        campaignId:
+          type: string
+          format: uuid
+        totalTargets:
+          type: integer
+          description: Total number of targets identified
+        contacted:
+          type: integer
+          description: Number of initial contacts made
+        responses:
+          type: integer
+          description: Number of responses received
+        conversions:
+          type: integer
+          description: Number of successful conversions
+        responseRate:
+          type: number
+          format: float
+          description: Response rate percentage
+        conversionRate:
+          type: number
+          format: float
+          description: Conversion rate percentage
+        lastUpdated:
+          type: string
+          format: date-time
+
+    Script:
+      type: object
+      properties:
+        scriptId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        template:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

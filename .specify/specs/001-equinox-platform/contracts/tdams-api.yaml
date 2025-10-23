@@ -1,0 +1,961 @@
+openapi: 3.0.3
+info:
+  title: TDAMS API - Treasury & Digital Asset Management System
+  version: 1.0.0
+  description: |
+    API specification for Equinox Asset Management's Treasury & Digital Asset Management System.
+
+    This service manages cryptocurrency wallets, transaction processing, liquidity optimization,
+    and exchange integration for the Equinox platform.
+
+    **Key Capabilities:**
+    - Hierarchical wallet architecture with HD wallet support
+    - Multi-asset support (BTC, ETH, ERC-20 stablecoins)
+    - Automated liquidity management workflows
+    - Multi-exchange integration with jurisdictional compliance
+    - Real-time transaction monitoring and reporting
+
+  contact:
+    name: Equinox Platform Engineering
+    email: platform-eng@equinox-am.example.com
+
+servers:
+  - url: https://api.equinox-am.example.com/tdams/v1
+    description: Production API
+  - url: https://api-staging.equinox-am.example.com/tdams/v1
+    description: Staging API
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+tags:
+  - name: Wallets
+    description: Wallet creation, management, and hierarchical address generation
+  - name: Transactions
+    description: Transaction creation, signing, and broadcasting
+  - name: Liquidity
+    description: Automated liquidity management and treasury optimization
+  - name: Exchanges
+    description: Exchange integration and jurisdictional compliance
+  - name: Reporting
+    description: Transaction history, balances, and audit reports
+
+paths:
+  # ==================== WALLET MANAGEMENT ====================
+
+  /wallets:
+    post:
+      tags: [Wallets]
+      summary: Create new wallet
+      description: |
+        Creates a new hierarchical deterministic (HD) wallet with support for multiple
+        cryptocurrencies. Returns wallet ID and initial receive address.
+
+        The wallet uses BIP32/BIP44 standards for key derivation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - assetType
+                - label
+              properties:
+                assetType:
+                  type: string
+                  enum: [BTC, ETH, USDT, USDC]
+                  description: Primary asset type for this wallet
+                label:
+                  type: string
+                  description: Human-readable label for wallet identification
+                  example: "Client Deposit Wallet - Region NA"
+                metadata:
+                  type: object
+                  description: Additional metadata for wallet categorization
+                  additionalProperties: true
+      responses:
+        '201':
+          description: Wallet created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Wallet'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    get:
+      tags: [Wallets]
+      summary: List wallets
+      description: Retrieve paginated list of wallets with optional filtering
+      parameters:
+        - name: assetType
+          in: query
+          schema:
+            type: string
+            enum: [BTC, ETH, USDT, USDC]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+      responses:
+        '200':
+          description: Wallet list retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wallets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Wallet'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /wallets/{walletId}:
+    get:
+      tags: [Wallets]
+      summary: Get wallet details
+      parameters:
+        - $ref: '#/components/parameters/WalletId'
+      responses:
+        '200':
+          description: Wallet details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Wallet'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /wallets/{walletId}/addresses:
+    post:
+      tags: [Wallets]
+      summary: Generate new address
+      description: |
+        Generates a new receive address from the wallet's HD key path.
+        Useful for creating unique addresses per client or transaction.
+      parameters:
+        - $ref: '#/components/parameters/WalletId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                  description: Optional label for this address
+                  example: "Client ABC - Deposit Address"
+      responses:
+        '201':
+          description: Address generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Address'
+
+    get:
+      tags: [Wallets]
+      summary: List wallet addresses
+      parameters:
+        - $ref: '#/components/parameters/WalletId'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: Address list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  addresses:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Address'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /wallets/{walletId}/balance:
+    get:
+      tags: [Wallets]
+      summary: Get wallet balance
+      description: Returns current balance including confirmed and pending transactions
+      parameters:
+        - $ref: '#/components/parameters/WalletId'
+      responses:
+        '200':
+          description: Wallet balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Balance'
+
+  # ==================== TRANSACTION MANAGEMENT ====================
+
+  /transactions:
+    post:
+      tags: [Transactions]
+      summary: Create transaction
+      description: |
+        Creates and broadcasts a new transaction. Supports both standard transfers
+        and multi-output transactions for batch processing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fromWalletId
+                - outputs
+              properties:
+                fromWalletId:
+                  type: string
+                  format: uuid
+                outputs:
+                  type: array
+                  description: Transaction outputs (supports multiple for batch transfers)
+                  minItems: 1
+                  items:
+                    type: object
+                    required:
+                      - address
+                      - amount
+                    properties:
+                      address:
+                        type: string
+                        description: Destination address
+                      amount:
+                        type: string
+                        description: Amount in base units (e.g., satoshis for BTC)
+                        pattern: '^\d+$'
+                      label:
+                        type: string
+                        description: Optional label for this output
+                feeRate:
+                  type: string
+                  description: Fee rate (satoshis/byte for BTC, gwei for ETH). Auto-calculated if omitted.
+                metadata:
+                  type: object
+                  description: Additional transaction metadata
+                  additionalProperties: true
+      responses:
+        '202':
+          description: Transaction created and broadcast
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '402':
+          description: Insufficient balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      tags: [Transactions]
+      summary: List transactions
+      description: Retrieve transaction history with filtering options
+      parameters:
+        - name: walletId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, confirmed, failed]
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Transaction list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /transactions/{txId}:
+    get:
+      tags: [Transactions]
+      summary: Get transaction details
+      parameters:
+        - name: txId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transaction details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+
+  # ==================== LIQUIDITY MANAGEMENT ====================
+
+  /liquidity/consolidate:
+    post:
+      tags: [Liquidity]
+      summary: Execute consolidation workflow
+      description: |
+        Consolidates funds from multiple source addresses into a destination wallet.
+        Commonly used for aggregating client deposits into treasury wallets.
+
+        **Use Cases:**
+        - Consolidating client deposits for treasury management
+        - Reducing address fragmentation for fee optimization
+        - Preparing funds for exchange deposits
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - sourceWallets
+                - destinationWalletId
+              properties:
+                sourceWallets:
+                  type: array
+                  description: List of source wallet IDs to consolidate from
+                  items:
+                    type: string
+                    format: uuid
+                  minItems: 1
+                destinationWalletId:
+                  type: string
+                  format: uuid
+                  description: Target wallet for consolidated funds
+                minAmount:
+                  type: string
+                  description: Minimum amount per source (ignore sources below this threshold)
+                feeStrategy:
+                  type: string
+                  enum: [low, medium, high, custom]
+                  default: medium
+                  description: Fee optimization strategy
+                schedule:
+                  type: string
+                  format: date-time
+                  description: Optional scheduled execution time (immediate if omitted)
+      responses:
+        '202':
+          description: Consolidation workflow initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiquidityWorkflow'
+
+  /liquidity/distribute:
+    post:
+      tags: [Liquidity]
+      summary: Execute distribution workflow
+      description: |
+        Distributes funds from a source wallet to multiple destination addresses.
+        Useful for disbursements, payouts, or spreading funds across multiple wallets.
+
+        **Use Cases:**
+        - Client withdrawal processing
+        - Distributing funds for risk management
+        - Multi-wallet treasury strategy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - sourceWalletId
+                - distributions
+              properties:
+                sourceWalletId:
+                  type: string
+                  format: uuid
+                distributions:
+                  type: array
+                  description: Distribution targets
+                  items:
+                    type: object
+                    required:
+                      - walletId
+                      - amount
+                    properties:
+                      walletId:
+                        type: string
+                        format: uuid
+                      amount:
+                        type: string
+                        description: Amount to distribute
+                feeStrategy:
+                  type: string
+                  enum: [low, medium, high, custom]
+                  default: medium
+                schedule:
+                  type: string
+                  format: date-time
+      responses:
+        '202':
+          description: Distribution workflow initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiquidityWorkflow'
+
+  /liquidity/workflows:
+    get:
+      tags: [Liquidity]
+      summary: List liquidity workflows
+      description: Retrieve history of consolidation and distribution workflows
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [consolidate, distribute]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, in_progress, completed, failed]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+      responses:
+        '200':
+          description: Workflow list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workflows:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LiquidityWorkflow'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  # ==================== EXCHANGE INTEGRATION ====================
+
+  /exchanges:
+    get:
+      tags: [Exchanges]
+      summary: List integrated exchanges
+      description: Returns list of exchanges available for trading and transfers
+      responses:
+        '200':
+          description: Exchange list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exchanges:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Exchange'
+
+  /exchanges/verify-jurisdiction:
+    post:
+      tags: [Exchanges]
+      summary: Verify exchange jurisdiction compliance
+      description: |
+        Validates whether a specific exchange is permitted for use based on
+        client jurisdiction and regulatory requirements.
+
+        This endpoint checks against configured compliance rules to ensure
+        transactions only occur through exchanges permitted for the client's
+        legal residence and regulatory zone.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - exchangeId
+                - clientJurisdiction
+              properties:
+                exchangeId:
+                  type: string
+                  description: Exchange identifier
+                clientJurisdiction:
+                  type: string
+                  description: Client's legal jurisdiction code (ISO 3166-1 alpha-2)
+                  example: "US"
+                assetType:
+                  type: string
+                  description: Optional asset type for asset-specific regulations
+      responses:
+        '200':
+          description: Jurisdiction verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  permitted:
+                    type: boolean
+                    description: Whether this exchange is permitted for the jurisdiction
+                  exchangeId:
+                    type: string
+                  exchangeName:
+                    type: string
+                  clientJurisdiction:
+                    type: string
+                  rationale:
+                    type: string
+                    description: Explanation of compliance decision
+                    example: "Exchange is licensed in client jurisdiction"
+                  restrictions:
+                    type: array
+                    description: Any applicable restrictions or limitations
+                    items:
+                      type: string
+
+  /exchanges/{exchangeId}/deposit:
+    post:
+      tags: [Exchanges]
+      summary: Generate exchange deposit address
+      description: Obtains a deposit address for transferring funds to an exchange
+      parameters:
+        - name: exchangeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - assetType
+              properties:
+                assetType:
+                  type: string
+                  enum: [BTC, ETH, USDT, USDC]
+      responses:
+        '200':
+          description: Deposit address generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  depositAddress:
+                    type: string
+                  assetType:
+                    type: string
+                  memo:
+                    type: string
+                    description: Memo/tag if required (e.g., for XRP, XLM)
+
+  /exchanges/{exchangeId}/transfer:
+    post:
+      tags: [Exchanges]
+      summary: Transfer funds to exchange
+      description: Creates a transaction to deposit funds into an exchange account
+      parameters:
+        - name: exchangeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fromWalletId
+                - amount
+                - assetType
+              properties:
+                fromWalletId:
+                  type: string
+                  format: uuid
+                amount:
+                  type: string
+                assetType:
+                  type: string
+                  enum: [BTC, ETH, USDT, USDC]
+      responses:
+        '202':
+          description: Transfer initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+
+  # ==================== REPORTING ====================
+
+  /reports/balances:
+    get:
+      tags: [Reporting]
+      summary: Generate balance report
+      description: Comprehensive balance report across all wallets and assets
+      parameters:
+        - name: asOf
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Point-in-time balance (defaults to current)
+        - name: groupBy
+          in: query
+          schema:
+            type: string
+            enum: [asset, wallet, label]
+      responses:
+        '200':
+          description: Balance report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  asOf:
+                    type: string
+                    format: date-time
+                  balances:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        assetType:
+                          type: string
+                        totalBalance:
+                          type: string
+                        confirmedBalance:
+                          type: string
+                        pendingBalance:
+                          type: string
+                        walletCount:
+                          type: integer
+
+  /reports/transactions:
+    get:
+      tags: [Reporting]
+      summary: Generate transaction report
+      description: Detailed transaction report with filtering and export options
+      parameters:
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, csv]
+            default: json
+      responses:
+        '200':
+          description: Transaction report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  period:
+                    type: object
+                    properties:
+                      start:
+                        type: string
+                        format: date-time
+                      end:
+                        type: string
+                        format: date-time
+                  summary:
+                    type: object
+                    properties:
+                      totalTransactions:
+                        type: integer
+                      totalVolume:
+                        type: object
+                        additionalProperties:
+                          type: string
+                  transactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+
+# ==================== COMPONENTS ====================
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from authentication service
+
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for service-to-service authentication
+
+  parameters:
+    WalletId:
+      name: walletId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Wallet:
+      type: object
+      properties:
+        walletId:
+          type: string
+          format: uuid
+        assetType:
+          type: string
+          enum: [BTC, ETH, USDT, USDC]
+        label:
+          type: string
+        balance:
+          $ref: '#/components/schemas/Balance'
+        createdAt:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+
+    Address:
+      type: object
+      properties:
+        address:
+          type: string
+        walletId:
+          type: string
+          format: uuid
+        label:
+          type: string
+        derivationPath:
+          type: string
+          example: "m/44'/0'/0'/0/0"
+        createdAt:
+          type: string
+          format: date-time
+
+    Balance:
+      type: object
+      properties:
+        confirmed:
+          type: string
+          description: Confirmed balance in base units
+        pending:
+          type: string
+          description: Pending balance (unconfirmed)
+        total:
+          type: string
+          description: Total balance (confirmed + pending)
+
+    Transaction:
+      type: object
+      properties:
+        txId:
+          type: string
+        txHash:
+          type: string
+          description: Blockchain transaction hash
+        fromWalletId:
+          type: string
+          format: uuid
+        outputs:
+          type: array
+          items:
+            type: object
+            properties:
+              address:
+                type: string
+              amount:
+                type: string
+        status:
+          type: string
+          enum: [pending, confirmed, failed]
+        confirmations:
+          type: integer
+        fee:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        confirmedAt:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+
+    LiquidityWorkflow:
+      type: object
+      properties:
+        workflowId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [consolidate, distribute]
+        status:
+          type: string
+          enum: [pending, in_progress, completed, failed]
+        sourceWallets:
+          type: array
+          items:
+            type: string
+            format: uuid
+        destinationWallet:
+          type: string
+          format: uuid
+        totalAmount:
+          type: string
+        transactionCount:
+          type: integer
+        completedTransactions:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+
+    Exchange:
+      type: object
+      properties:
+        exchangeId:
+          type: string
+        name:
+          type: string
+        supportedAssets:
+          type: array
+          items:
+            type: string
+        apiCapabilities:
+          type: array
+          description: Available API features
+          items:
+            type: string
+            enum: [deposit, withdrawal, trading, websocket]
+        jurisdictions:
+          type: array
+          description: Supported jurisdictions
+          items:
+            type: string
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Authentication required or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
