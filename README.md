@@ -200,8 +200,8 @@ Complete OpenAPI 3.0 specifications are provided:
 
 You can import these into:
 - **Swagger Editor:** https://editor.swagger.io/
-- **Postman:** Import � OpenAPI 3.0
-- **Insomnia:** Import � OpenAPI 3.0
+- **Postman:** Import OpenAPI 3.0
+- **Insomnia:** Import OpenAPI 3.0
 
 ## Development Best Practices
 
@@ -263,12 +263,6 @@ This specification kit is provided for educational use in CPSC 436C at the Unive
 - **GitHub Spec-Kit:** https://github.com/github/spec-kit
 - **UBC Computer Science Department**
 - **CPSC 436C Instructional Team**
-
-## Questions?
-
-For course-related questions, contact:
-- **Instructor:** Tony Xu
-- **TAs:** Jasper (Zoom office hours), Arman (Discord office hours)
 
 ---
 
